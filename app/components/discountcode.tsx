@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, Copy, Check, Sparkles, ArrowRight } from "lucide-react";
+import { Copy, Check, Sparkles, ArrowRight } from "lucide-react";
 
 const LOADING_MESSAGES = [
   "Assembling your surprise...",
@@ -14,23 +14,53 @@ const LOADING_MESSAGES = [
 const DISCOUNT_CODE = "CURIOUS10";
 const SHOP_URL = "https://bassagari.com";
 
+// slower, more deliberate reveal — a quick spinner reads as trivial,
+// a longer unhurried build reads as something worth waiting for
+const LOAD_DURATION_MS = 5200;
+
+const RING_RADIUS = 54;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
 export default function BassaGariReward() {
   const [phase, setPhase] = useState("loading"); // "loading" | "reveal"
-  const [messageIndex, setMessageIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
   const [copied, setCopied] = useState(false);
+  const startRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const messageTimer = setInterval(() => {
-      setMessageIndex((i) => (i < LOADING_MESSAGES.length - 1 ? i + 1 : i));
-    }, 750);
+    function tick(timestamp: number) {
+      if (startRef.current === null) startRef.current = timestamp;
+      const elapsed = timestamp - startRef.current;
+      // ease-out curve so it settles in gently near the end rather than
+      // stopping abruptly — reads as more considered, less mechanical
+      const linear = Math.min(1, elapsed / LOAD_DURATION_MS);
+      const eased = 1 - Math.pow(1 - linear, 2);
+      setProgress(eased * 100);
 
-    const phaseTimer = setTimeout(() => setPhase("reveal"), 3000);
-
+      if (linear < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick);
     return () => {
-      clearInterval(messageTimer);
-      clearTimeout(phaseTimer);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (progress >= 100 && phase === "loading") {
+      const t = setTimeout(() => setPhase("reveal"), 550);
+      return () => clearTimeout(t);
+    }
+  }, [progress, phase]);
+
+  const messageIndex = Math.min(
+    LOADING_MESSAGES.length - 1,
+    Math.floor((progress / 100) * LOADING_MESSAGES.length)
+  );
+  const isComplete = progress >= 100;
+  const dashOffset = RING_CIRCUMFERENCE * (1 - progress / 100);
 
   function handleCopy() {
     navigator.clipboard.writeText(DISCOUNT_CODE).catch(() => {});
@@ -40,7 +70,6 @@ export default function BassaGariReward() {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-orange-50 relative overflow-hidden px-4 py-10">
-      {/* ambient background blobs, echoes the lead-form brand */}
       <div className="pointer-events-none absolute -top-32 -right-32 w-96 h-96 rounded-full bg-orange-200 opacity-40 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-amber-200 opacity-50 blur-3xl" />
 
@@ -50,12 +79,76 @@ export default function BassaGariReward() {
             key="loading"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12, transition: { duration: 0.35 } }}
-            transition={{ duration: 0.4 }}
-            className="relative z-10 w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-orange-100 px-8 py-10 flex flex-col items-center text-center"
+            exit={{ opacity: 0, y: -12, transition: { duration: 0.4 } }}
+            transition={{ duration: 0.5 }}
+            className="relative z-10 w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-orange-100 px-8 py-11 flex flex-col items-center text-center"
           >
-            <div className="mb-6 flex items-center justify-center w-14 h-14 rounded-full bg-orange-100">
-              <Loader2 className="w-7 h-7 text-orange-700 animate-spin" />
+            <div className="relative mb-7 w-32 h-32 flex items-center justify-center">
+              {/* soft ambient pulse behind the ring, restrained */}
+              <motion.div
+                animate={{ opacity: [0.25, 0.45, 0.25], scale: [1, 1.06, 1] }}
+                transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
+                className="absolute inset-0 rounded-full bg-orange-200 blur-xl"
+              />
+
+              <svg
+                width="128"
+                height="128"
+                viewBox="0 0 128 128"
+                className="-rotate-90 relative"
+              >
+                <circle
+                  cx="64"
+                  cy="64"
+                  r={RING_RADIUS}
+                  fill="none"
+                  stroke="#FDE8D2"
+                  strokeWidth="7"
+                />
+                <circle
+                  cx="64"
+                  cy="64"
+                  r={RING_RADIUS}
+                  fill="none"
+                  stroke="url(#ringGradient)"
+                  strokeWidth="7"
+                  strokeLinecap="round"
+                  strokeDasharray={RING_CIRCUMFERENCE}
+                  strokeDashoffset={dashOffset}
+                />
+                <defs>
+                  <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#FBBF24" />
+                    <stop offset="100%" stopColor="#C2410C" />
+                  </linearGradient>
+                </defs>
+              </svg>
+
+              <div className="absolute inset-0 flex items-center justify-center">
+                <AnimatePresence mode="wait">
+                  {isComplete ? (
+                    <motion.div
+                      key="check"
+                      initial={{ scale: 0.4, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 18 }}
+                      className="w-10 h-10 rounded-full bg-orange-600 flex items-center justify-center"
+                    >
+                      <Check className="w-5 h-5 text-white" />
+                    </motion.div>
+                  ) : (
+                    <motion.span
+                      key="percent"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="text-2xl font-semibold text-orange-800 tabular-nums tracking-tight"
+                    >
+                      {Math.round(progress)}%
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
 
             <AnimatePresence mode="wait">
@@ -64,21 +157,12 @@ export default function BassaGariReward() {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.25 }}
-                className="text-stone-700 font-medium text-base mb-6 min-h-6"
+                transition={{ duration: 0.3 }}
+                className="text-stone-700 font-medium text-base min-h-6"
               >
                 {LOADING_MESSAGES[messageIndex]}
               </motion.p>
             </AnimatePresence>
-
-            <div className="w-full h-2 rounded-full bg-orange-100 overflow-hidden">
-              <motion.div
-                initial={{ width: "0%" }}
-                animate={{ width: "100%" }}
-                transition={{ duration: 3, ease: "easeInOut" }}
-                className="h-full rounded-full bg-linear-to-r from-amber-400 to-orange-600"
-              />
-            </div>
           </motion.div>
         ) : (
           <motion.div
